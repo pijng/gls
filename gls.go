@@ -42,15 +42,17 @@ var (
 // offset returns the offset into typ for the given field.
 func offset(typ, field string) uintptr {
 	offsetOnce.Do(func() {
-		offsetCache = make(map[string]uintptr)
+		offsetCache = cache{
+			offsets: make(map[string]uintptr),
+		}
 	})
 
-	offset, ok := offsetCache[typ+field]
+	offset, ok := offsetCache.get(typ + field)
 	if !ok {
 		rt := toType(typesByString(typ)[0])
 		f, _ := rt.Elem().FieldByName(field)
 		offset = f.Offset
-		offsetCache[typ+field] = offset
+		offsetCache.set(typ+field, offset)
 	}
 
 	return offset
@@ -63,4 +65,22 @@ func typesByString(s string) []unsafe.Pointer
 func toType(t unsafe.Pointer) reflect.Type
 
 var offsetOnce sync.Once
-var offsetCache map[string]uintptr
+var offsetCache cache
+
+type cache struct {
+	mu      sync.RWMutex
+	offsets map[string]uintptr
+}
+
+func (c *cache) get(key string) (uintptr, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	v, ok := c.offsets[key]
+	return v, ok
+}
+
+func (c *cache) set(key string, v uintptr) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.offsets[key] = v
+}
